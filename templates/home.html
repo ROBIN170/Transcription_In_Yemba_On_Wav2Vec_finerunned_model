@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Transcription</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/wavesurfer.js"></script>
+</head>
+<body>
+<div class="container">
+    <!-- Input for file upload -->
+    <div class="input-div">
+        <label for="fileInput">Upload file:</label>
+        <input class="input" id="fileInput" name="file" type="file" accept="audio/mp3">
+    </div>
+
+    <!-- Recording controls -->
+    <div class="record-div">
+        <label for="recordButton">Or record an MP3 file:</label>
+        <button id="recordButton" onclick="toggleRecording()">Start Recording</button>
+        <button id="stopButton" onclick="stopRecording()" disabled>Stop Recording</button>
+    </div>
+
+    <!-- Audio player -->
+    <div class="audio-player">
+        <div class="album-cover"></div>
+        <div class="player-controls">
+            <div class="song-info">
+                <div class="song-title">Audio</div>
+            </div>
+            <div class="buttons">
+                <button class="play-btn" onclick="playAudio()">Play</button>
+                <button class="pause-btn" onclick="pauseAudio()">Pause</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Waveform container -->
+    <div id="waveform"></div>
+
+    <!-- Loader -->
+    <div class="loader" id="loader"></div>
+
+    <!-- Submit button -->
+    <div class="submit-div">
+        <button class="submit-btn" onclick="submitAudio()">Submit</button>
+    </div>
+
+    <!-- Display transcription -->
+    <div id="transcription"></div>
+</div>
+
+<script>
+// Initialize WaveSurfer
+let wavesurfer = WaveSurfer.create({
+    container: '#waveform',
+    waveColor: 'violet',
+    progressColor: 'purple',
+    height: 100,
+    responsive: true, // Make the waveform responsive
+    fillParent: true  // Ensure it fills the parent div
+});
+
+let audio = new Audio();
+let audioFile;
+let mediaRecorder;
+let recordedChunks = [];
+
+document.getElementById('fileInput').addEventListener('change', function(event) {
+    audioFile = event.target.files[0];
+    audio.src = URL.createObjectURL(audioFile);
+    wavesurfer.load(URL.createObjectURL(audioFile));
+});
+
+function playAudio() {
+    wavesurfer.play();
+}
+
+function pauseAudio() {
+    wavesurfer.pause();
+}
+
+async function submitAudio() {
+    if (!audioFile) {
+        alert("Please upload or record an audio file first.");
+        return;
+    }
+
+    // Show the loader
+    document.getElementById('loader').style.display = 'block';
+
+    const formData = new FormData();
+    formData.append('file', audioFile);
+
+    try {
+        const response = await fetch('/transcribe', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error('Network response was not ok ' + response.statusText);
+        }
+
+        const result = await response.json();
+        document.getElementById('transcription').innerText = "Transcription: " + result.transcription;
+    } catch (error) {
+        console.error('There has been a problem with your fetch operation:', error);
+    } finally {
+        // Hide the loader
+        document.getElementById('loader').style.display = 'none';
+    }
+}
+
+async function toggleRecording() {
+    const recordButton = document.getElementById('recordButton');
+    const stopButton = document.getElementById('stopButton');
+
+    if (recordButton.innerText === "Start Recording") {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert("Recording not supported on this browser.");
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(recordedChunks, { type: 'audio/mp3' });
+                audioFile = new File([blob], 'recording.mp3', { type: 'audio/mp3' });
+                audio.src = URL.createObjectURL(audioFile);
+                wavesurfer.load(URL.createObjectURL(audioFile));
+                recordedChunks = [];
+            };
+            mediaRecorder.start();
+            recordButton.innerText = "Recording...";
+            stopButton.disabled = false;
+        } catch (err) {
+            console.error('Error starting recording:', err);
+        }
+    } else {
+        mediaRecorder.stop();
+        recordButton.innerText = "Start Recording";
+        stopButton.disabled = true;
+    }
+}
+
+function stopRecording() {
+    mediaRecorder.stop();
+    document.getElementById('recordButton').innerText = "Start Recording";
+    document.getElementById('stopButton').disabled = true;
+}
+</script>
+
+</body>
+</html>
